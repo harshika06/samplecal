@@ -1,12 +1,23 @@
-import json
+ import json
 
 def handler(event, context):
     try:
         # Extract parameters from the query string
         operation = event.get('queryStringParameters', {}).get('operation')
-        num1 = float(event.get('queryStringParameters', {}).get('num1', 0))
-        num2 = float(event.get('queryStringParameters', {}).get('num2', 0))
-        
+        num1_str = event.get('queryStringParameters', {}).get('num1', '0')
+        num2_str = event.get('queryStringParameters', {}).get('num2', '0')
+
+        # Validate if 'num1' and 'num2' can be converted to floats
+        try:
+            num1 = float(num1_str)
+            num2 = float(num2_str)
+        except ValueError:
+            return {
+                'statusCode': 400,
+                'body': json.dumps({'error': 'Invalid number format for num1 or num2'})
+            }
+
+        # Perform the calculation based on the operation
         if operation == 'add':
             result = num1 + num2
         elif operation == 'subtract':
@@ -25,11 +36,12 @@ def handler(event, context):
                 'statusCode': 400,
                 'body': json.dumps({'error': 'Invalid operation'})
             }
-        
+
         return {
             'statusCode': 200,
             'body': json.dumps({'result': result})
         }
+
     except Exception as e:
         return {
             'statusCode': 500,
