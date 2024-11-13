@@ -1,0 +1,112 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Resources:
+  MyLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaLoggingPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "arn:aws:logs:*:*:*"
+
+  MyLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: SimpleCalculatorFunction
+      Handler: index.handler
+      Role: !GetAtt MyLambdaExecutionRole.Arn
+      Code:
+        ZipFile: |
+          import json
+
+          def handler(event, context):
+              try:
+                  # Extract parameters from the query string
+                  operation = event.get('queryStringParameters', {}).get('operation')
+                  num1 = float(event.get('queryStringParameters', {}).get('num1', 0))
+                  num2 = float(event.get('queryStringParameters', {}).get('num2', 0))
+                  
+                  if operation == 'add':
+                      result = num1 + num2
+                  elif operation == 'subtract':
+                      result = num1 - num2
+                  elif operation == 'multiply':
+                      result = num1 * num2
+                  elif operation == 'divide':
+                      if num2 == 0:
+                          return {
+                              'statusCode': 400,
+                              'body': json.dumps({'error': 'Cannot divide by zero'})
+                          }
+                      result = num1 / num2
+                  else:
+                      return {
+                          'statusCode': 400,
+                          'body': json.dumps({'error': 'Invalid operation'})
+                      }
+                  
+                  return {
+                      'statusCode': 200,
+                      'body': json.dumps({'result': result})
+                  }
+              except Exception as e:
+                  return {
+                      'statusCode': 500,
+                      'body': json.dumps({'error': str(e)})
+                  }
+
+      Runtime: python3.8
+      MemorySize: 128
+      Timeout: 10
+
+  MyApiGateway:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: SimpleCalculatorAPI
+      Description: "API Gateway for simple calculator"
+
+  LambdaApiGatewayResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref MyApiGateway
+      ParentId: !GetAtt MyApiGateway.RootResourceId
+      PathPart: calculate
+
+  LambdaApiMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: GET
+      ResourceId: !Ref LambdaApiGatewayResource
+      RestApiId: !Ref MyApiGateway
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${MyLambdaFunction.Arn}/invocations
+
+  LambdaApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    Properties:
+      RestApiId: !Ref MyApiGateway
+      StageName: prod
+    DependsOn: LambdaApiMethod
+
+  ApiGatewayInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref MyLambdaFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
